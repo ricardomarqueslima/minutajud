@@ -1,0 +1,311 @@
+// This is your Prisma schema file for MinutaJus Application
+// Learn more about Prisma: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User Models
+model User {
+  id             String           @id @default(uuid())
+  name           String
+  email          String           @unique
+  password       String
+  role           UserRole         @default(ASSESSOR)
+  active         Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  processos      Processo[]
+  minutas        Minuta[]
+  notifications  Notification[]
+  sessions       Session[]
+  configurations UserConfig?
+}
+
+enum UserRole {
+  ADMIN
+  DESEMBARGADOR
+  ASSESSOR
+  ASSISTENTE
+}
+
+model UserConfig {
+  id               String  @id @default(uuid())
+  userId           String  @unique
+  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultFormatting String? @default("{}") // JSON for default formatting preferences
+  defaultSignature String? // Default signature for documents
+  favoriteSearches String? @default("[]") // JSON array of favorite search terms
+  themePreference  String  @default("light")
+  notifications    Boolean @default(true)
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+}
+
+// Process and Document Models
+model Processo {
+  id                 String           @id @default(uuid())
+  numeroProcesso     String           @unique // 20-digit process number
+  varaOrigem         String
+  ritoProcessual     RitoProcessual
+  valorCausa         Decimal          @default(0)
+  dataAjuizamento    DateTime
+  dataExtincaoContrato DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  userId             String           // Who created/owns this process
+  user               User             @relation(fields: [userId], references: [id])
+  documentos         Documento[]
+  partes             ProcessoParte[]
+  advogados          ProcessoAdvogado[]
+  minutas            Minuta[]
+  analisesProcesso   AnaliseProcesso[]
+  materias           Materia[]
+}
+
+enum RitoProcessual {
+  ORDINARIO
+  SUMARISSIMO
+  ESPECIAL
+}
+
+model ProcessoParte {
+  id          String      @id @default(uuid())
+  processoId  String
+  processo    Processo    @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  nome        String
+  tipoParte   TipoParte
+  genero      Genero
+  cpfCnpj     String?
+  polo        PoloParte
+  endereco    String?
+  contato     String?
+  advogados   ProcessoAdvogado[]
+}
+
+enum TipoParte {
+  RECLAMANTE
+  RECLAMADO
+  TERCEIRO_INTERESSADO
+}
+
+enum PoloParte {
+  ATIVO
+  PASSIVO
+}
+
+enum Genero {
+  MASCULINO
+  FEMININO
+}
+
+model ProcessoAdvogado {
+  id            String        @id @default(uuid())
+  processoId    String
+  processo      Processo      @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  parteId       String
+  parte         ProcessoParte @relation(fields: [parteId], references: [id], onDelete: Cascade)
+  nome          String
+  genero        Genero
+  oab           String
+  uf            String
+  email         String?
+  telefone      String?
+}
+
+model Documento {
+  id            String      @id @default(uuid())
+  processoId    String
+  processo      Processo    @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  tipoDocumento TipoDocumento
+  titulo        String
+  conteudo      String      @db.Text
+  arquivo       String?     // Path to file storage
+  mimeType      String?
+  tamanho       Int?        // Size in bytes
+  hash          String?     // For integrity verification
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  analisado     Boolean     @default(false)
+  metadata      Json?       // Additional metadata about the document
+}
+
+enum TipoDocumento {
+  PETICAO_INICIAL
+  CONTESTACAO
+  SENTENCA
+  RECURSO_ORDINARIO
+  CONTRARRAZOES
+  LAUDO_PERICIAL
+  ATA_AUDIENCIA
+  DECISAO_INTERLOCUTORIA
+  EMBARGOS_DECLARACAO
+  OUTROS
+}
+
+// Analysis Models
+model AnaliseProcesso {
+  id             String    @id @default(uuid())
+  processoId     String
+  processo       Processo  @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  dataAnalise    DateTime  @default(now())
+  tempestividade Boolean?
+  valorPreparo   Decimal?
+  depositoRecursal Decimal?
+  custas         Decimal?
+  dataCiencia    DateTime?
+  dataInterposicao DateTime?
+  situacaoPreparo SituacaoPreparo?
+  representacaoProcessual Boolean?
+  dialeticidade  Boolean?
+  conclusaoAdmissibilidade String?
+  observacoes    String?    @db.Text
+  minutaId       String?
+  minutaGerada   Minuta?    @relation(fields: [minutaId], references: [id])
+}
+
+enum SituacaoPreparo {
+  REGULAR
+  DESERTO
+  ISENTO
+}
+
+model Materia {
+  id              String     @id @default(uuid())
+  processoId      String
+  processo        Processo   @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  titulo          String
+  descricao       String?    @db.Text
+  decisaoUsuario  DecisaoMateria?
+  decisaoAutomatica DecisaoMateria?
+  fundamentacao   String?    @db.Text
+  observacoes     String?    @db.Text
+  pesquisas       PesquisaJuridica[]
+}
+
+enum DecisaoMateria {
+  PROVIMENTO
+  NAO_PROVIMENTO
+  PROVIMENTO_PARCIAL
+  PREJUDICADO
+}
+
+model PesquisaJuridica {
+  id              String     @id @default(uuid())
+  materiaId       String
+  materia         Materia    @relation(fields: [materiaId], references: [id], onDelete: Cascade)
+  tipoPesquisa    TipoPesquisaJuridica
+  termoPesquisa   String
+  resultado       String     @db.Text
+  fonte           String
+  url             String?
+  dataPesquisa    DateTime   @default(now())
+  relevancia      Int        @default(0) // 0-10 score of relevance
+}
+
+enum TipoPesquisaJuridica {
+  JURISPRUDENCIA_TST
+  JURISPRUDENCIA_TRT
+  SUMULA_TST
+  OJ_TST
+  PRECEDENTE_VINCULANTE
+  REPERCUSSAO_GERAL_STF
+  LEGISLACAO
+  DOUTRINA
+}
+
+// Minuta Models
+model Minuta {
+  id              String     @id @default(uuid())
+  processoId      String
+  processo        Processo   @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User       @relation(fields: [userId], references: [id])
+  titulo          String
+  relator         String     // Nome do desembargador relator
+  cabecalho       String     @db.Text
+  ementa          String     @db.Text
+  relatorio       String     @db.Text
+  fundamentacao   String     @db.Text
+  dispositivo     String     @db.Text
+  conteudoCompleto String    @db.Text
+  status          StatusMinuta @default(RASCUNHO)
+  versao          Int        @default(1)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  analises        AnaliseProcesso[]
+  revisoes        RevisaoMinuta[]
+}
+
+enum StatusMinuta {
+  RASCUNHO
+  EM_ANALISE
+  REVISAO_SOLICITADA
+  REVISADA
+  FINALIZADA
+  ARQUIVADA
+}
+
+model RevisaoMinuta {
+  id              String     @id @default(uuid())
+  minutaId        String
+  minuta          Minuta     @relation(fields: [minutaId], references: [id], onDelete: Cascade)
+  conteudoAnterior String    @db.Text
+  conteudoNovo    String     @db.Text
+  alteracoes      String     @db.Text // Description of changes
+  createdAt       DateTime   @default(now())
+  solicitadaPor   String?    // User ID or name
+}
+
+// Notification System
+model Notification {
+  id              String     @id @default(uuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  titulo          String
+  mensagem        String
+  lida            Boolean    @default(false)
+  createdAt       DateTime   @default(now())
+  tipo            TipoNotificacao
+}
+
+enum TipoNotificacao {
+  SISTEMA
+  PROCESSO
+  MINUTA
+  REVISAO
+}
+
+// Configuration and Audit
+model SystemConfig {
+  id              String     @id @default(uuid())
+  chave           String     @unique
+  valor           String
+  descricao       String?
+  updatedAt       DateTime   @updatedAt
+}
+
+model AuditLog {
+  id              String     @id @default(uuid())
+  userId          String?    // Can be null for system actions
+  action          String
+  entityType      String     // The type of entity affected (User, Processo, etc.)
+  entityId        String?    // ID of the affected entity, if applicable
+  details         String     @db.Text
+  ipAddress       String?
+  createdAt       DateTime   @default(now())
+}
